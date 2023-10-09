@@ -22,6 +22,7 @@ import numpy as np
 from threading import Lock
 import time
 from . import sensor_model
+import json
 PI_OVER_TWO = math.pi/2 # For faster calculations
 
 class PFLocaliserBase(object):
@@ -279,4 +280,5 @@ class PFLocaliserBase(object):
         # ----- Map has changed, so we should reinitialise the particle cloud
         rospy.loginfo("Particle filter got map. (Re)initialising.")
         self.particlecloud = self.initialise_particle_cloud(self.estimatedpose)
+        rospy.loginfo(json.dumps(self.particlecloud))
         self.particlecloud.header.frame_id = "map"
