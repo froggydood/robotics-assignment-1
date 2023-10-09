@@ -1,4 +1,4 @@
-# PF Localisation Package (Skeleton Code)
+# PF Localisation Package (Group 22)
 
 ## Particle Filter Exercise
 
