@@ -61,6 +61,8 @@ class ParticleFilterLocalisationNode(object):
                                                      queue_size=1)
 
     def _initial_pose_callback(self, pose):
+        rospy.loginfo('Initial pose received')
+        rospy.loginfo(pose)
         """ called when RViz sends a user supplied initial pose estimate """
         self._particle_filter.set_initial_pose(pose)
         self._last_published_pose = deepcopy(self._particle_filter.estimatedpose)
