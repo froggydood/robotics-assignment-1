@@ -20,7 +20,7 @@ class PFLocaliser(PFLocaliserBase):
         # ----- Set motion model parameters
  
         # ----- Sensor model parameters
-        self.NUMBER_PREDICTED_READINGS = 60                       # Number of readings to predict
+        self.NUMBER_PREDICTED_READINGS = 80                       # Number of readings to predict
         self.RANDOM_PARTICLE_MULTIPLIER = 20                      # The multiplier for readings when generating the random particle grid when robot is lost
 
         # ----- Error noise distribution parameters
@@ -33,6 +33,8 @@ class PFLocaliser(PFLocaliserBase):
         self.FOUND_MEAN_SENSOR_THRESHOLD = 10
         self.LOST_TIME_RESET = 10                                 # The max in seconds time a particle can be lost for without regenerating the grid
         self.LOST_ERROR_MULTIPLIER = 2
+
+        self.FRACTION_RANDOM_PARTICLES = 0.07
 
         self._time_lost_at = 0
         self._lost_behaviour = False
@@ -206,6 +208,12 @@ class PFLocaliser(PFLocaliserBase):
         num_particles_out = self.NUMBER_PREDICTED_READINGS
         new_cloud = PoseArray()
         new_cloud.poses = self.systematic_resampling(weights, num_particles_out)
+
+        # Introduce extra 7% random particles
+        num_random_particles = int(self.FRACTION_RANDOM_PARTICLES * num_particles_out)
+        random_particles = self.generate_random_particles(num_random_particles)
+        new_cloud.poses.extend(random_particles)
+        
         self.particlecloud = new_cloud
 
     def systematic_resampling(self, weights, num_particles_out):
@@ -222,9 +230,34 @@ class PFLocaliser(PFLocaliserBase):
             particles_out.append(new_particle)
             threshold += 1/num_particles_out
         return particles_out
+    
+    def generate_random_particles(self, num_particles):
+        particles = []
+        defaultOrientation = Quaternion(0, 0, 0, 1)
+
+        # Basically doing the same as the add_noise function but to the random particles
+        for _ in range(num_particles):
+
+            # Pick a random position from our list of unoccupied spaces.
+            idx = np.random.randint(len(self._unoccupied_coords))
+            cell = self._unoccupied_coords[idx]
+            
+            noiseX = self.sample_error_position()
+            noiseY = self.sample_error_position()
+            rotation = np.random.uniform(-np.pi, np.pi)
+            
+            newPose = Pose(
+                Point(
+                    cell[0] + noiseX,
+                    cell[1] + noiseY,
+                    0
+                ),
+                rotateQuaternion(defaultOrientation, rotation)
+            )
+            particles.append(newPose)
+        return particles
 
     def estimate_pose(self):
-        return self.particlecloud.poses[0]
         """
         This should calculate and return an updated robot pose estimate based
         on the particle cloud (self.particlecloud).
