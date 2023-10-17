@@ -11,7 +11,7 @@ import pf_localisation.pf
 from pf_localisation.util import *
 
 from geometry_msgs.msg import ( PoseStamped, PoseWithCovarianceStamped,
-                                PoseArray, Quaternion )
+                                PoseArray, Quaternion, Pose )
 from tf.msg import tfMessage
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -78,10 +78,10 @@ class ParticleFilterLocalisationNode(object):
         if self._initial_pose_received:
             t_odom = self._particle_filter.predict_from_odometry(odometry)
             t_filter = self._particle_filter.update_filter(self._latest_scan)
-            if t_odom + t_filter > 0.1:
-                rospy.logwarn("Filter cycle overran timeslot")
-                rospy.loginfo("Odometry update: %fs"%t_odom)
-                rospy.loginfo("Particle update: %fs"%t_filter)
+            # if t_odom + t_filter > 0.1:
+                # rospy.logwarn("Filter cycle overran timeslot")
+                # rospy.loginfo("Odometry update: %fs"%t_odom)
+                # rospy.loginfo("Particle update: %fs"%t_filter)
     
     def _laser_callback(self, scan):
         """

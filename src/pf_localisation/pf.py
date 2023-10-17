@@ -20,8 +20,9 @@ class PFLocaliser(PFLocaliserBase):
         # ----- Set motion model parameters
  
         # ----- Sensor model parameters
-        self.NUMBER_PREDICTED_READINGS = 80                       # Number of readings to predict
+        self.NUMBER_PREDICTED_READINGS = rospy.get_param("/PF_Localizer/num_particles", 80) # Number of readings to predict
         self.RANDOM_PARTICLE_MULTIPLIER = 20                      # The multiplier for readings when generating the random particle grid when robot is lost
+        self.LOST_PARTICLE_MULTIPLIER = 5
 
         # ----- Error noise distribution parameters
         self.GAUSSIAN_POSITION_ERROR_STANDARD_DEVIATION = 0.1     # Standard deviation of the normal distribution for position error
@@ -29,17 +30,20 @@ class PFLocaliser(PFLocaliserBase):
 
         self.GAUSSIAN_ORIENTATION_ERROR_STANDARD_DEVIATION = 0.1  # Standard deviation of the normal distribution for orientation error
         self.GAUSSIAN_ORIENTATION_ERROR_STANDARD_MEAN = 0         # Mean of the normal distribution for orientation error
-        self.LOST_MEAN_SENSOR_THRESHOLD = 6                       # The threshold for the mean sensor weights to decide if the robot is lost
-        self.FOUND_MEAN_SENSOR_THRESHOLD = 10
-        self.LOST_TIME_RESET = 10                                 # The max in seconds time a particle can be lost for without regenerating the grid
+        self.LOST_MEAN_SENSOR_THRESHOLD = rospy.get_param("/PF_Localizer/lost_sensor_threshold", 6)                       # The threshold for the mean sensor weights to decide if the robot is lost
+        self.FOUND_MEAN_SENSOR_THRESHOLD = rospy.get_param("/PF_Localizer/found_sensor_threshold", 10)
+        self.LOST_TIME_RESET = 1000                                 # The max in seconds time a particle can be lost for without regenerating the grid
         self.LOST_ERROR_MULTIPLIER = 2
+        self.LOST_MULTIPLIER_DECAY = 0.95
 
-        self.FRACTION_RANDOM_PARTICLES = 0.07
+        self.FRACTION_RANDOM_PARTICLES = 0.1
+        self.LOST_FRACTION_RANDOM_PARTICLES_MULTIPLIER = 0
 
         self._time_lost_at = 0
         self._lost_behaviour = False
         self._random_map_part = False
         self._unoccupied_coords = []
+        self.map_publisher = rospy.Publisher("/unoccupied_map", OccupancyGrid)
 
     # Overwrite the default set_map function to regenerate the unoccupied coords
     def set_map(self, occupancy_map):
@@ -57,10 +61,22 @@ class PFLocaliser(PFLocaliserBase):
         width = self.occupancy_map.info.width
         resolution = self.occupancy_map.info.resolution
         rospy.loginfo(self.occupancy_map.info.width)
+        test_map = []
         for i in range(len(self.occupancy_map.data)):
             data_item = self.occupancy_map.data[i]
             if (data_item == 0):
-                self._unoccupied_coords.append([(i % width) * resolution, math.floor(i / width) * resolution])
+                test_map.append(0)
+                self._unoccupied_coords.append([
+                    (i % width) * resolution + self.occupancy_map.info.origin.position.x,
+                    math.floor(i / width) * resolution + self.occupancy_map.info.origin.position.x
+                ])
+            else:
+                test_map.append(-1)
+        grid = OccupancyGrid()
+        grid.info = self.occupancy_map.info
+        grid.data = test_map
+        print("Published")
+        self.map_publisher.publish(grid)
 
     def sample_error_position(self):
         return np.random.normal(
@@ -101,27 +117,31 @@ class PFLocaliser(PFLocaliserBase):
     def generate_particle_grid(self, num_particles_out):
         newPoseArray = PoseArray()
 
+        numOrientations = 6
+        num_particles_out = math.floor(num_particles_out / numOrientations)
         step = math.floor((len(self._unoccupied_coords) - 1) / num_particles_out)
 
         defaultOrientation = Quaternion(0, 0, 0, 1)
 
+
         for i in range(num_particles_out):
-            noiseX = self.sample_error_position()
-            noiseY = self.sample_error_position()
-            rotation = np.random.uniform(-np.pi, np.pi)
-            cell = self._unoccupied_coords[i * step]
-            newPose = Pose(
-                Point(
-                    cell[0] + noiseX,
-                    cell[1] + noiseY,
-                    0
-                ),
-                rotateQuaternion(defaultOrientation, rotation)
-            )
-            newPoseArray.poses.append(newPose)
+            rotation = rotateQuaternion(defaultOrientation, np.random.uniform(-np.pi, np.pi))
+            for j in range(numOrientations):
+                noiseX = self.sample_error_position()
+                noiseY = self.sample_error_position()
+                cell = self._unoccupied_coords[i * step]
+                newPose = Pose(
+                    Point(
+                        cell[0] + noiseX,
+                        cell[1] + noiseY,
+                        0
+                    ),
+                    rotateQuaternion(rotation, 2 * np.pi * i / numOrientations)
+                )
+                newPoseArray.poses.append(newPose)
 
         return newPoseArray
-
+    
     def initialise_particle_cloud(self, initialPose):
         """
         Set particle cloud to initialpose plus noise
@@ -172,27 +192,32 @@ class PFLocaliser(PFLocaliserBase):
             weights.append(weight)
         
         _mean = total / len(weights)
+        num_particles_out = self.NUMBER_PREDICTED_READINGS
 
-        if (self._lost_behaviour):
-            print((time.time() - self._time_lost_at), self.LOST_TIME_RESET)
-            print("Mean", _mean)
+        # if (self._lost_behaviour):
+        #     print((time.time() - self._time_lost_at), self.LOST_TIME_RESET)
+        #     print("Mean", _mean)
 
-        if (not self._lost_behaviour and _mean <= self.LOST_MEAN_SENSOR_THRESHOLD) or (self._lost_behaviour and time.time() - self._time_lost_at) > self.LOST_TIME_RESET:
+        if (not self._lost_behaviour and _mean <= self.LOST_MEAN_SENSOR_THRESHOLD) or (self._lost_behaviour and time.time() - self._time_lost_at > self.LOST_TIME_RESET):
             rospy.loginfo("Now lost")
             self._time_lost_at = time.time()
             self._lost_behaviour = True
-            self._random_map_part = True
+            # self._random_map_part = True
+            self._current_lost_multiplier = self.LOST_PARTICLE_MULTIPLIER
 
         if self._lost_behaviour == True:
             if self._random_map_part == True:
                 self.particlecloud = self.generate_particle_grid(self.NUMBER_PREDICTED_READINGS * self.RANDOM_PARTICLE_MULTIPLIER)
                 self._random_map_part = False
                 return
+            else:
+                num_particles_out = math.floor(num_particles_out * self._current_lost_multiplier)
+                self._current_lost_multiplier = self._current_lost_multiplier * self.LOST_MULTIPLIER_DECAY
+                if (self._current_lost_multiplier < 1): self._current_lost_multiplier = 1
 
         if self._lost_behaviour and _mean >= self.FOUND_MEAN_SENSOR_THRESHOLD:
             self._lost_behaviour = False
             rospy.loginfo("Now found")
-
 
         # 1. Decide if is_lost
         # 2. Scatter a bunch of particles
@@ -205,12 +230,11 @@ class PFLocaliser(PFLocaliserBase):
             weights[i] = weights[i] / total
 
         # Resample
-        num_particles_out = self.NUMBER_PREDICTED_READINGS
         new_cloud = PoseArray()
         new_cloud.poses = self.systematic_resampling(weights, num_particles_out)
 
         # Introduce extra 7% random particles
-        num_random_particles = int(self.FRACTION_RANDOM_PARTICLES * num_particles_out)
+        num_random_particles = int(self.FRACTION_RANDOM_PARTICLES * (self.LOST_FRACTION_RANDOM_PARTICLES_MULTIPLIER if self._lost_behaviour else 1) * num_particles_out)
         random_particles = self.generate_random_particles(num_random_particles)
         new_cloud.poses.extend(random_particles)
         
@@ -224,7 +248,7 @@ class PFLocaliser(PFLocaliserBase):
         threshold = np.random.uniform(0, 1/num_particles_out)  # incorrect interval [0, M^-1)
         i = 0
         for j in range(num_particles_out):
-            while threshold > cdf[i]:
+            while (threshold > cdf[i] and i + 1 < len(self.particlecloud.poses)):
                 i += 1
             new_particle = self.apply_noise_to_pose(self.particlecloud.poses[i])
             particles_out.append(new_particle)
@@ -258,6 +282,7 @@ class PFLocaliser(PFLocaliserBase):
         return particles
 
     def estimate_pose(self):
+        # return self.particlecloud.poses[0]
         """
         This should calculate and return an updated robot pose estimate based
         on the particle cloud (self.particlecloud).
@@ -344,6 +369,11 @@ class PFLocaliser(PFLocaliserBase):
         return estimated_pose
 
     def kmeans_clustering(self, data_points, num_clusters=3, max_iterations=100):
+
+        if (self._lost_behaviour):
+            max_iterations = 10
+        else:
+            max_iterations = 30
 
         # Randomly select initial centroids from the data points
         initial_centroids_indices = np.random.choice(len(data_points), size=num_clusters, replace=False)

@@ -1,0 +1,11 @@
+<!-- Created: 12/10/2023, Author: Callum Wilson  -->
+
+<!-- Launch file to initialiise AMCL -->
+<launch>
+    <node name="PF_Localizer" pkg="pf_localisation" type="node.py">
+        <param name="/found_sensor_threshold" value="%VALUE%" />
+    </node>
+    <node name="Metrics" pkg="pf_localisation" type="metric.py">
+        <param name="/results_file" value="/home/fergus/catkin_ws/src/pf_localisation/scripts/results.txt" type="string" />
+    </node>
+</launch>
