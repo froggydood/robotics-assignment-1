@@ -1,6 +1,6 @@
-num_runs_per_bag=3
+num_runs_per_bag=1
 run_length_secs=60
-num_steps=6
+num_steps=1
 step=1
 start=8
 
@@ -72,7 +72,7 @@ do
       fi
       timeout $(($run_length_secs+10)) roslaunch ./node-test-$current_step.launch &
       sleep 10
-      timeout $run_length_secs rosbag play -r 0.5 --clock ~/catkin_ws/src/pf_localisation/data/sim_data/simpath1.bag &
+      timeout $run_length_secs rosbag play -r 1 --clock ~/catkin_ws/src/pf_localisation/data/sim_data/simpath1.bag &
       echo "Setting initial pose $pose_index"
       rostopic pub -1 /initialpose geometry_msgs/PoseWithCovarianceStamped "$initial_pose"
       sleep $run_length_secs

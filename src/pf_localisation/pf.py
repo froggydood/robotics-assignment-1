@@ -202,7 +202,7 @@ class PFLocaliser(PFLocaliserBase):
             rospy.loginfo("Now lost")
             self._time_lost_at = time.time()
             self._lost_behaviour = True
-            # self._random_map_part = True
+            self._random_map_part = True
             self._current_lost_multiplier = self.LOST_PARTICLE_MULTIPLIER
 
         if self._lost_behaviour == True:

@@ -1,4 +1,4 @@
-# PF Localisation Package (Group 22)
+# PF Localisation Package (Group 20)
 
 ## Particle Filter Exercise
 
